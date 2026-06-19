@@ -1,0 +1,38 @@
+name: 📈 Monitor Dólar Argentina
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'   # cada 10 minutos
+  workflow_dispatch:           # también permite correrlo a mano
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write          # necesario para commitear state.json
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Instalar dependencias
+        run: pip install requests
+
+      - name: Correr monitor
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID:   ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python monitor_dolar.py
+
+      - name: Guardar estado en el repo
+        run: |
+          git config user.email "monitor-bot@noreply.com"
+          git config user.name "Monitor Bot"
+          git add state.json
+          git diff --staged --quiet || git commit -m "chore: update state [skip ci]"
+          git push
