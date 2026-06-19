@@ -9,6 +9,7 @@ BOT_TOKEN  = os.environ.get('TELEGRAM_BOT_TOKEN', '')
 CHAT_ID    = os.environ.get('TELEGRAM_CHAT_ID', '')
 STATE_FILE = 'state.json'
 API_URL    = 'https://dolarapi.com/v1/dolares'
+TRIGGERS   = ['.', 'actualizar', 'precio', 'cotizacion', 'cotización', 'dolar', 'dólar', '/precio', '/actualizar']
 # ─────────────────────────────────────────────────────────
 
 def get_prices():
@@ -17,10 +18,8 @@ def get_prices():
     prices = {}
     for item in r.json():
         casa = item.get('casa', '')
-        if casa == 'bolsa':
-            prices['mep'] = item
-        elif casa == 'oficial':
-            prices['oficial'] = item
+        if casa == 'bolsa':   prices['mep']     = item
+        elif casa == 'oficial': prices['oficial'] = item
     return prices
 
 def send_telegram(msg):
@@ -33,6 +32,17 @@ def send_telegram(msg):
     )
     print("✅ Enviado" if r.status_code == 200 else f"❌ {r.status_code}: {r.text}")
 
+def cotizacion_msg(prices, now_str):
+    mep     = prices.get('mep', {})
+    oficial = prices.get('oficial', {})
+    return (
+        f"💵 <b>Cotización Dólar</b> — {now_str} UTC\n\n"
+        f"📌 MEP/Bolsa (COCOS, brokers)\n"
+        f"   Compra: ${mep.get('compra'):,.2f}  |  Venta: ${mep.get('venta'):,.2f}\n\n"
+        f"🏦 Oficial (BNA)\n"
+        f"   Compra: ${oficial.get('compra'):,.2f}  |  Venta: ${oficial.get('venta'):,.2f}"
+    )
+
 def load_state():
     if os.path.exists(STATE_FILE):
         with open(STATE_FILE) as f:
@@ -43,15 +53,43 @@ def save_state(state):
     with open(STATE_FILE, 'w') as f:
         json.dump(state, f, indent=2)
 
-def check_alerts(prices, state, now_iso, now_str):
-    """Lógica de alerta: notifica si baja del umbral, nueva baja, o cada hora si sigue abajo."""
-    alerts = []
+def check_incoming_messages(prices, state, now_str):
+    """Revisa si el usuario mandó un mensaje trigger y responde con la cotización."""
+    offset = state.get('tg_offset', 0)
+    r = requests.get(
+        f'https://api.telegram.org/bot{BOT_TOKEN}/getUpdates',
+        params={'offset': offset, 'timeout': 0},
+        timeout=10
+    )
+    if r.status_code != 200:
+        print(f"Error getUpdates: {r.status_code}"); return
 
-    for key, label in [('mep', 'MEP/Bolsa (COCOS, brokers)'), ('oficial', 'Oficial (BNA)')]:
-        item  = prices.get(key, {})
-        precio = item.get('venta')
-        if precio is None:
+    updates = r.json().get('result', [])
+    triggered = False
+
+    for update in updates:
+        update_id = update.get('update_id', 0)
+        state['tg_offset'] = update_id + 1   # marcar como procesado
+
+        msg   = update.get('message', {})
+        text  = msg.get('text', '').strip().lower()
+        # Solo responder al chat del dueño
+        if str(msg.get('chat', {}).get('id', '')) != str(CHAT_ID):
             continue
+
+        if any(text == t or text.startswith(t) for t in TRIGGERS):
+            triggered = True
+
+    if triggered:
+        print("Mensaje trigger recibido, enviando cotización.")
+        send_telegram(cotizacion_msg(prices, now_str))
+
+def check_alerts(prices, state, now_iso, now_str):
+    alerts = []
+    for key, label in [('mep', 'MEP/Bolsa (COCOS, brokers)'), ('oficial', 'Oficial (BNA)')]:
+        item   = prices.get(key, {})
+        precio = item.get('venta')
+        if precio is None: continue
 
         s          = state.get(key, {})
         last_price = s.get('last_notified_price')
@@ -60,14 +98,12 @@ def check_alerts(prices, state, now_iso, now_str):
         if precio < UMBRAL:
             notify = False
             reason = ''
-
             if last_price is None:
                 notify = True
                 reason = f'Cruzó el umbral de ${UMBRAL:,} 🎯'
             elif precio < last_price:
-                diff   = last_price - precio
                 notify = True
-                reason = f'Bajó otros ${diff:,.2f} (antes ${last_price:,.2f})'
+                reason = f'Bajó otros ${last_price - precio:,.2f} (antes ${last_price:,.2f})'
             elif last_time:
                 mins = (datetime.fromisoformat(now_iso) - datetime.fromisoformat(last_time)).total_seconds() / 60
                 if mins >= 60:
@@ -90,27 +126,14 @@ def check_alerts(prices, state, now_iso, now_str):
     if alerts:
         send_telegram(f"🕐 {now_str} UTC\n\n" + "\n\n".join(alerts))
 
-def send_biohourly_update(prices, state, now_iso, now_str):
-    """Cada 2 horas manda la cotización actual sin importar el precio."""
-    last_update = state.get('last_biohourly_update')
-    if last_update:
-        mins = (datetime.fromisoformat(now_iso) - datetime.fromisoformat(last_update)).total_seconds() / 60
-        if mins < 110:   # margen de 10 min por si el cron se corre un poco
-            print(f"Update bihoral: faltan {int(120 - mins)} min, salteando.")
-            return
-
-    mep     = prices.get('mep', {})
-    oficial = prices.get('oficial', {})
-
-    msg = (
-        f"💵 <b>Cotización Dólar</b> — {now_str} UTC\n\n"
-        f"📌 MEP/Bolsa (COCOS, brokers)\n"
-        f"   Compra: ${mep.get('compra'):,.2f}  |  Venta: ${mep.get('venta'):,.2f}\n\n"
-        f"🏦 Oficial (BNA)\n"
-        f"   Compra: ${oficial.get('compra'):,.2f}  |  Venta: ${oficial.get('venta'):,.2f}"
-    )
-    send_telegram(msg)
-    state['last_biohourly_update'] = now_iso
+def send_bihourly_update(prices, state, now_iso, now_str):
+    last = state.get('last_bihourly_update')
+    if last:
+        mins = (datetime.fromisoformat(now_iso) - datetime.fromisoformat(last)).total_seconds() / 60
+        if mins < 110:
+            print(f"Update bihoral: faltan {int(120 - mins)} min."); return
+    send_telegram(cotizacion_msg(prices, now_str))
+    state['last_bihourly_update'] = now_iso
 
 def main():
     try:
@@ -125,8 +148,9 @@ def main():
 
     print(f"MEP: {prices.get('mep',{}).get('venta')}  |  Oficial: {prices.get('oficial',{}).get('venta')}")
 
-    check_alerts(prices, state, now_iso, now_str)
-    send_biohourly_update(prices, state, now_iso, now_str)
+    check_incoming_messages(prices, state, now_str)  # responde si mandaste un trigger
+    check_alerts(prices, state, now_iso, now_str)     # alertas de umbral
+    send_bihourly_update(prices, state, now_iso, now_str)  # update cada 2hs
 
     save_state(state)
 
