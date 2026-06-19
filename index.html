@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Cotizaciones del Dólar · Argentina</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #0b0e1a; --surface: #131729; --border: #1f2640;
+      --accent: #00d4aa; --buy: #10b981; --sell: #f59e0b;
+      --text: #e2e8f0; --muted: #64748b; --red: #ef4444;
+    }
+    body { background: var(--bg); color: var(--text); font-family: 'Inter', sans-serif; min-height: 100vh; display: flex; flex-direction: column; align-items: center; padding: 2rem 1rem 4rem; }
+    header { width: 100%; max-width: 820px; margin-bottom: 2rem; display: flex; align-items: flex-end; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
+    .header-left h1 { font-size: 1.5rem; font-weight: 600; letter-spacing: -0.02em; }
+    .header-left h1 span { color: var(--accent); }
+    .header-left p { margin-top: .25rem; font-size: .8rem; color: var(--muted); }
+    .live-pill { display: inline-flex; align-items: center; gap: .4rem; background: rgba(0,212,170,.1); border: 1px solid rgba(0,212,170,.25); border-radius: 999px; padding: .3rem .75rem; font-size: .7rem; font-weight: 500; color: var(--accent); letter-spacing: .05em; text-transform: uppercase; }
+    .live-dot { width: 6px; height: 6px; background: var(--accent); border-radius: 50%; animation: pulse 1.8s ease-in-out infinite; }
+    @keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.3;transform:scale(.7)} }
+    .controls { width: 100%; max-width: 820px; display: flex; align-items: center; gap: .75rem; margin-bottom: 1rem; flex-wrap: wrap; }
+    #search { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: .5rem .85rem; color: var(--text); font-family: 'Inter',sans-serif; font-size: .82rem; outline: none; width: 220px; transition: border-color .2s; }
+    #search::placeholder { color: var(--muted); }
+    #search:focus { border-color: var(--accent); }
+    .btn-refresh { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: .5rem 1rem; color: var(--text); font-family: 'Inter',sans-serif; font-size: .82rem; cursor: pointer; transition: border-color .2s,background .2s; display: flex; align-items: center; gap: .4rem; }
+    .btn-refresh:hover { border-color: var(--accent); background: rgba(0,212,170,.05); }
+    .btn-refresh.spinning svg { animation: spin .7s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .update-time { margin-left: auto; font-size: .72rem; color: var(--muted); }
+    .source-badge { font-size: .68rem; color: var(--muted); background: var(--surface); border: 1px solid var(--border); border-radius: 4px; padding: .2rem .5rem; }
+    .table-wrap { width: 100%; max-width: 820px; border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+    table { width: 100%; border-collapse: collapse; }
+    thead { background: var(--surface); }
+    thead th { padding: .85rem 1.2rem; font-size: .7rem; font-weight: 500; letter-spacing: .07em; text-transform: uppercase; color: var(--muted); text-align: left; }
+    thead th:not(:first-child) { text-align: right; }
+    tbody tr { border-top: 1px solid var(--border); transition: background .15s; }
+    tbody tr:hover { background: rgba(255,255,255,.03); }
+    tbody td { padding: .9rem 1.2rem; font-size: .88rem; }
+    .casa-cell { display: flex; flex-direction: column; gap: 2px; }
+    .casa-nombre { font-weight: 600; color: var(--text); }
+    .casa-slug { font-size: .68rem; color: var(--muted); font-family: 'JetBrains Mono',monospace; }
+    .money { font-family: 'JetBrains Mono',monospace; font-size: .92rem; font-weight: 600; display: block; text-align: right; }
+    .money.compra { color: var(--buy); }
+    .money.venta  { color: var(--sell); }
+    .money.spread { color: var(--muted); font-weight: 400; font-size: .78rem; }
+    .money.na     { color: var(--muted); font-weight: 400; }
+    .fecha-cell   { display: block; text-align: right; font-size: .72rem; color: var(--muted); }
+    .state-box { width: 100%; max-width: 820px; border: 1px solid var(--border); border-radius: 12px; padding: 3rem 2rem; text-align: center; color: var(--muted); font-size: .88rem; }
+    .state-box .icon { font-size: 2rem; margin-bottom: .75rem; }
+    .error-box { border-color: rgba(239,68,68,.3); }
+    .error-msg { color: var(--red); }
+    .error-help { margin-top: .75rem; font-size: .78rem; color: var(--muted); line-height: 1.6; }
+    .error-help code { background: var(--surface); border: 1px solid var(--border); border-radius: 4px; padding: .1rem .35rem; font-family: 'JetBrains Mono',monospace; font-size: .75rem; }
+    .skel { height: 14px; border-radius: 4px; background: linear-gradient(90deg,var(--surface) 25%,var(--border) 50%,var(--surface) 75%); background-size: 200% 100%; animation: shimmer 1.2s infinite; }
+    .skel.w60 { width: 60%; } .skel.w40 { width: 40%; margin-left: auto; } .skel.w30 { width: 30%; margin-left: auto; }
+    @keyframes shimmer { 0%{background-position:200% 0} 100%{background-position:-200% 0} }
+    .skeleton-row td { padding: 1rem 1.2rem; }
+    footer { margin-top: 2rem; font-size: .7rem; color: var(--muted); text-align: center; }
+    footer a { color: var(--accent); text-decoration: none; }
+  </style>
+</head>
+<body>
+<header>
+  <div class="header-left">
+    <h1>Dólar <span>Argentina</span></h1>
+    <p>Cotizaciones en tiempo real de bancos y billeteras digitales</p>
+  </div>
+  <div class="live-pill"><span class="live-dot"></span>En vivo</div>
+</header>
+
+<div class="controls">
+  <input id="search" type="text" placeholder="Buscar casa de cambio…" />
+  <button class="btn-refresh" id="refreshBtn" onclick="cargar()">
+    <svg id="refreshIcon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M23 4v6h-6"/><path d="M1 20v-6h6"/>
+      <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+    </svg>
+    Actualizar
+  </button>
+  <span class="source-badge" id="sourceBadge" style="display:none"></span>
+  <span class="update-time" id="updateTime"></span>
+</div>
+
+<div id="container"></div>
+
+<footer id="footerLink">
+  Datos provistos por <a href="https://dolarapi.com" target="_blank">DolarApi.com</a> / <a href="https://argentinadatos.com" target="_blank">ArgentinaDatos</a> · Solo informativos
+</footer>
+
+<script>
+  let allData = [];
+
+  // ── Normalizers ────────────────────────────────────────────────────────────
+  // DolarApi devuelve: { nombre, compra, venta, moneda, fechaActualizacion }
+  // ArgentinaDatos devuelve: { casa, nombre, compra, venta, fechaActualizacion }
+  function normalizeDolarApi(arr) {
+    return arr.map(d => ({
+      casa: d.nombre?.toLowerCase().replace(/\s+/g,'-') ?? '—',
+      nombre: d.nombre ?? '—',
+      compra: d.compra,
+      venta: d.venta,
+      fechaActualizacion: d.fechaActualizacion
+    }));
+  }
+  function normalizeArgentinaDatos(arr) { return arr; }
+
+  // ── Endpoints (se prueban en orden) ───────────────────────────────────────
+  const ENDPOINTS = [
+    {
+      label: 'DolarApi.com',
+      url: 'https://dolarapi.com/v1/dolares',
+      normalize: normalizeDolarApi
+    },
+    {
+      label: 'DolarApi (proxy)',
+      url: 'https://api.allorigins.win/raw?url=' + encodeURIComponent('https://dolarapi.com/v1/dolares'),
+      normalize: normalizeDolarApi
+    },
+    {
+      label: 'ArgentinaDatos',
+      url: 'https://api.argentinadatos.com/v1/cotizaciones/dolares',
+      normalize: normalizeArgentinaDatos
+    },
+    {
+      label: 'ArgentinaDatos (proxy)',
+      url: 'https://api.allorigins.win/raw?url=' + encodeURIComponent('https://api.argentinadatos.com/v1/cotizaciones/dolares'),
+      normalize: normalizeArgentinaDatos
+    }
+  ];
+
+  async function tryFetch(endpoint) {
+    const res = await fetch(endpoint.url, { signal: AbortSignal.timeout(8000) });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const json = await res.json();
+    const arr = Array.isArray(json) ? json : (json.contents ? JSON.parse(json.contents) : null);
+    if (!arr) throw new Error('Formato inesperado');
+    return { data: endpoint.normalize(arr), source: endpoint.label };
+  }
+
+  // ── Format helpers ─────────────────────────────────────────────────────────
+  function fmt(val) {
+    if (val == null) return '—';
+    return Number(val).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+  function fmtFecha(str) {
+    if (!str) return '—';
+    try {
+      return new Date(str).toLocaleString('es-AR', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' });
+    } catch { return str; }
+  }
+  function spread(c, v) {
+    if (c == null || v == null) return '—';
+    return ((v - c) / c * 100).toFixed(1) + '%';
+  }
+
+  // ── Render ─────────────────────────────────────────────────────────────────
+  function renderSkeleton() {
+    const rows = Array.from({length:8}, () => `
+      <tr class="skeleton-row">
+        <td><div class="skel w60"></div></td>
+        <td><div class="skel w40"></div></td>
+        <td><div class="skel w40"></div></td>
+        <td><div class="skel w30"></div></td>
+        <td><div class="skel w40"></div></td>
+      </tr>`).join('');
+    document.getElementById('container').innerHTML = `
+      <div class="table-wrap"><table>
+        <thead><tr>
+          <th>Casa</th><th>Compra $</th><th>Venta $</th><th>Spread</th><th>Actualización</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table></div>`;
+  }
+
+  function renderTabla(data) {
+    if (!data.length) {
+      document.getElementById('container').innerHTML = `
+        <div class="state-box"><div class="icon">🔍</div>No se encontraron resultados.</div>`;
+      return;
+    }
+    const rows = data.map(d => `
+      <tr>
+        <td><div class="casa-cell">
+          <span class="casa-nombre">${d.nombre}</span>
+          <span class="casa-slug">${d.casa}</span>
+        </div></td>
+        <td><span class="money compra">${fmt(d.compra)}</span></td>
+        <td><span class="money venta">${fmt(d.venta)}</span></td>
+        <td><span class="money spread">${spread(d.compra, d.venta)}</span></td>
+        <td><span class="fecha-cell">${fmtFecha(d.fechaActualizacion)}</span></td>
+      </tr>`).join('');
+    document.getElementById('container').innerHTML = `
+      <div class="table-wrap"><table>
+        <thead><tr>
+          <th>Casa de cambio</th>
+          <th style="text-align:right">Compra $</th>
+          <th style="text-align:right">Venta $</th>
+          <th style="text-align:right">Spread</th>
+          <th style="text-align:right">Actualización</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table></div>`;
+  }
+
+  function filtrar() {
+    const q = document.getElementById('search').value.toLowerCase().trim();
+    renderTabla(q ? allData.filter(d => d.nombre.toLowerCase().includes(q) || d.casa.toLowerCase().includes(q)) : allData);
+  }
+
+  // ── Main ───────────────────────────────────────────────────────────────────
+  async function cargar() {
+    const btn = document.getElementById('refreshBtn');
+    btn.classList.add('spinning');
+    document.getElementById('sourceBadge').style.display = 'none';
+    renderSkeleton();
+
+    let lastError = null;
+    for (const ep of ENDPOINTS) {
+      try {
+        const { data, source } = await tryFetch(ep);
+        allData = data.sort((a, b) => {
+          const aOk = (a.compra != null && a.venta != null) ? 0 : 1;
+          const bOk = (b.compra != null && b.venta != null) ? 0 : 1;
+          return aOk - bOk || a.nombre.localeCompare(b.nombre);
+        });
+        filtrar();
+        const now = new Date().toLocaleTimeString('es-AR', { hour:'2-digit', minute:'2-digit', second:'2-digit' });
+        document.getElementById('updateTime').textContent = `Última actualización: ${now}`;
+        const badge = document.getElementById('sourceBadge');
+        badge.textContent = `Fuente: ${source}`;
+        badge.style.display = 'inline';
+        btn.classList.remove('spinning');
+        return;
+      } catch (e) {
+        lastError = e;
+      }
+    }
+
+    // Todos fallaron
+    btn.classList.remove('spinning');
+    document.getElementById('container').innerHTML = `
+      <div class="state-box error-box">
+        <div class="icon">⚠️</div>
+        <div class="error-msg">No se pudo obtener las cotizaciones</div>
+        <div class="error-help">
+          El navegador bloqueó las solicitudes por política de seguridad (CORS/mixed-content).<br/>
+          Para que funcione, servilo con un servidor local:<br/><br/>
+          <code>npx serve .</code> &nbsp;→&nbsp; abrilo en <code>http://localhost:3000</code><br/>
+          o en VS Code: click derecho → <strong>Open with Live Server</strong>
+        </div>
+      </div>`;
+  }
+
+  document.getElementById('search').addEventListener('input', filtrar);
+  cargar();
+</script>
+</body>
+</html>
