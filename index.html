@@ -29,7 +29,6 @@
     .btn-refresh.spinning svg { animation: spin .7s linear infinite; }
     @keyframes spin { to { transform: rotate(360deg); } }
     .update-time { margin-left: auto; font-size: .72rem; color: var(--muted); }
-    .source-badge { font-size: .68rem; color: var(--muted); background: var(--surface); border: 1px solid var(--border); border-radius: 4px; padding: .2rem .5rem; }
     .table-wrap { width: 100%; max-width: 820px; border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
     table { width: 100%; border-collapse: collapse; }
     thead { background: var(--surface); }
@@ -49,10 +48,7 @@
     .fecha-cell   { display: block; text-align: right; font-size: .72rem; color: var(--muted); }
     .state-box { width: 100%; max-width: 820px; border: 1px solid var(--border); border-radius: 12px; padding: 3rem 2rem; text-align: center; color: var(--muted); font-size: .88rem; }
     .state-box .icon { font-size: 2rem; margin-bottom: .75rem; }
-    .error-box { border-color: rgba(239,68,68,.3); }
-    .error-msg { color: var(--red); }
-    .error-help { margin-top: .75rem; font-size: .78rem; color: var(--muted); line-height: 1.6; }
-    .error-help code { background: var(--surface); border: 1px solid var(--border); border-radius: 4px; padding: .1rem .35rem; font-family: 'JetBrains Mono',monospace; font-size: .75rem; }
+    .error-box { border-color: rgba(239,68,68,.3); color: var(--red); }
     .skel { height: 14px; border-radius: 4px; background: linear-gradient(90deg,var(--surface) 25%,var(--border) 50%,var(--surface) 75%); background-size: 200% 100%; animation: shimmer 1.2s infinite; }
     .skel.w60 { width: 60%; } .skel.w40 { width: 40%; margin-left: auto; } .skel.w30 { width: 30%; margin-left: auto; }
     @keyframes shimmer { 0%{background-position:200% 0} 100%{background-position:-200% 0} }
@@ -65,13 +61,13 @@
 <header>
   <div class="header-left">
     <h1>Dólar <span>Argentina</span></h1>
-    <p>Cotizaciones en tiempo real de bancos y billeteras digitales</p>
+    <p>Compra y venta por banco y billetera digital</p>
   </div>
   <div class="live-pill"><span class="live-dot"></span>En vivo</div>
 </header>
 
 <div class="controls">
-  <input id="search" type="text" placeholder="Buscar casa de cambio…" />
+  <input id="search" type="text" placeholder="Buscar banco o billetera…" />
   <button class="btn-refresh" id="refreshBtn" onclick="cargar()">
     <svg id="refreshIcon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
       <path d="M23 4v6h-6"/><path d="M1 20v-6h6"/>
@@ -79,85 +75,37 @@
     </svg>
     Actualizar
   </button>
-  <span class="source-badge" id="sourceBadge" style="display:none"></span>
   <span class="update-time" id="updateTime"></span>
 </div>
 
 <div id="container"></div>
 
-<footer id="footerLink">
-  Datos provistos por <a href="https://dolarapi.com" target="_blank">DolarApi.com</a> / <a href="https://argentinadatos.com" target="_blank">ArgentinaDatos</a> · Solo informativos
+<footer>
+  Datos: <a href="https://argentinadatos.com" target="_blank">ArgentinaDatos API</a> · Solo informativos
 </footer>
 
 <script>
   let allData = [];
 
-  // ── Normalizers ────────────────────────────────────────────────────────────
-  // DolarApi devuelve: { nombre, compra, venta, moneda, fechaActualizacion }
-  // ArgentinaDatos devuelve: { casa, nombre, compra, venta, fechaActualizacion }
-  function normalizeDolarApi(arr) {
-    return arr.map(d => ({
-      casa: d.nombre?.toLowerCase().replace(/\s+/g,'-') ?? '—',
-      nombre: d.nombre ?? '—',
-      compra: d.compra,
-      venta: d.venta,
-      fechaActualizacion: d.fechaActualizacion
-    }));
-  }
-  function normalizeArgentinaDatos(arr) { return arr; }
+  const API = 'https://api.argentinadatos.com/v1/cotizaciones/dolares';
+  const PROXY = 'https://api.allorigins.win/raw?url=' + encodeURIComponent(API);
 
-  // ── Endpoints (se prueban en orden) ───────────────────────────────────────
-  const ENDPOINTS = [
-    {
-      label: 'DolarApi.com',
-      url: 'https://dolarapi.com/v1/dolares',
-      normalize: normalizeDolarApi
-    },
-    {
-      label: 'DolarApi (proxy)',
-      url: 'https://api.allorigins.win/raw?url=' + encodeURIComponent('https://dolarapi.com/v1/dolares'),
-      normalize: normalizeDolarApi
-    },
-    {
-      label: 'ArgentinaDatos',
-      url: 'https://api.argentinadatos.com/v1/cotizaciones/dolares',
-      normalize: normalizeArgentinaDatos
-    },
-    {
-      label: 'ArgentinaDatos (proxy)',
-      url: 'https://api.allorigins.win/raw?url=' + encodeURIComponent('https://api.argentinadatos.com/v1/cotizaciones/dolares'),
-      normalize: normalizeArgentinaDatos
-    }
-  ];
-
-  async function tryFetch(endpoint) {
-    const res = await fetch(endpoint.url, { signal: AbortSignal.timeout(8000) });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const json = await res.json();
-    const arr = Array.isArray(json) ? json : (json.contents ? JSON.parse(json.contents) : null);
-    if (!arr) throw new Error('Formato inesperado');
-    return { data: endpoint.normalize(arr), source: endpoint.label };
-  }
-
-  // ── Format helpers ─────────────────────────────────────────────────────────
   function fmt(val) {
-    if (val == null) return '—';
+    if (val == null) return null;
     return Number(val).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   }
   function fmtFecha(str) {
     if (!str) return '—';
-    try {
-      return new Date(str).toLocaleString('es-AR', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' });
-    } catch { return str; }
+    try { return new Date(str).toLocaleString('es-AR', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' }); }
+    catch { return str; }
   }
   function spread(c, v) {
     if (c == null || v == null) return '—';
     return ((v - c) / c * 100).toFixed(1) + '%';
   }
 
-  // ── Render ─────────────────────────────────────────────────────────────────
   function renderSkeleton() {
-    const rows = Array.from({length:8}, () => `
+    const rows = Array.from({length: 10}, () => `
       <tr class="skeleton-row">
         <td><div class="skel w60"></div></td>
         <td><div class="skel w40"></div></td>
@@ -168,7 +116,11 @@
     document.getElementById('container').innerHTML = `
       <div class="table-wrap"><table>
         <thead><tr>
-          <th>Casa</th><th>Compra $</th><th>Venta $</th><th>Spread</th><th>Actualización</th>
+          <th>Banco / Billetera</th>
+          <th style="text-align:right">Compra $</th>
+          <th style="text-align:right">Venta $</th>
+          <th style="text-align:right">Spread</th>
+          <th style="text-align:right">Actualización</th>
         </tr></thead>
         <tbody>${rows}</tbody>
       </table></div>`;
@@ -180,21 +132,25 @@
         <div class="state-box"><div class="icon">🔍</div>No se encontraron resultados.</div>`;
       return;
     }
-    const rows = data.map(d => `
-      <tr>
-        <td><div class="casa-cell">
-          <span class="casa-nombre">${d.nombre}</span>
-          <span class="casa-slug">${d.casa}</span>
-        </div></td>
-        <td><span class="money compra">${fmt(d.compra)}</span></td>
-        <td><span class="money venta">${fmt(d.venta)}</span></td>
-        <td><span class="money spread">${spread(d.compra, d.venta)}</span></td>
-        <td><span class="fecha-cell">${fmtFecha(d.fechaActualizacion)}</span></td>
-      </tr>`).join('');
+    const rows = data.map(d => {
+      const compra = fmt(d.compra);
+      const venta  = fmt(d.venta);
+      return `
+        <tr>
+          <td><div class="casa-cell">
+            <span class="casa-nombre">${d.nombre}</span>
+            <span class="casa-slug">${d.casa}</span>
+          </div></td>
+          <td>${compra ? `<span class="money compra">${compra}</span>` : `<span class="money na">—</span>`}</td>
+          <td>${venta  ? `<span class="money venta">${venta}</span>`  : `<span class="money na">—</span>`}</td>
+          <td><span class="money spread">${spread(d.compra, d.venta)}</span></td>
+          <td><span class="fecha-cell">${fmtFecha(d.fechaActualizacion)}</span></td>
+        </tr>`;
+    }).join('');
     document.getElementById('container').innerHTML = `
       <div class="table-wrap"><table>
         <thead><tr>
-          <th>Casa de cambio</th>
+          <th>Banco / Billetera</th>
           <th style="text-align:right">Compra $</th>
           <th style="text-align:right">Venta $</th>
           <th style="text-align:right">Spread</th>
@@ -206,51 +162,53 @@
 
   function filtrar() {
     const q = document.getElementById('search').value.toLowerCase().trim();
-    renderTabla(q ? allData.filter(d => d.nombre.toLowerCase().includes(q) || d.casa.toLowerCase().includes(q)) : allData);
+    renderTabla(q ? allData.filter(d =>
+      d.nombre.toLowerCase().includes(q) || d.casa.toLowerCase().includes(q)
+    ) : allData);
   }
 
-  // ── Main ───────────────────────────────────────────────────────────────────
+  async function fetchData() {
+    // Intentar directo primero, luego proxy
+    for (const url of [API, PROXY]) {
+      try {
+        const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+        if (!res.ok) continue;
+        const json = await res.json();
+        const arr = Array.isArray(json) ? json : JSON.parse(json.contents);
+        if (arr?.length) return arr;
+      } catch { /* seguir con el siguiente */ }
+    }
+    throw new Error('No se pudo conectar con la API');
+  }
+
   async function cargar() {
     const btn = document.getElementById('refreshBtn');
     btn.classList.add('spinning');
-    document.getElementById('sourceBadge').style.display = 'none';
     renderSkeleton();
 
-    let lastError = null;
-    for (const ep of ENDPOINTS) {
-      try {
-        const { data, source } = await tryFetch(ep);
-        allData = data.sort((a, b) => {
-          const aOk = (a.compra != null && a.venta != null) ? 0 : 1;
-          const bOk = (b.compra != null && b.venta != null) ? 0 : 1;
-          return aOk - bOk || a.nombre.localeCompare(b.nombre);
-        });
-        filtrar();
-        const now = new Date().toLocaleTimeString('es-AR', { hour:'2-digit', minute:'2-digit', second:'2-digit' });
-        document.getElementById('updateTime').textContent = `Última actualización: ${now}`;
-        const badge = document.getElementById('sourceBadge');
-        badge.textContent = `Fuente: ${source}`;
-        badge.style.display = 'inline';
-        btn.classList.remove('spinning');
-        return;
-      } catch (e) {
-        lastError = e;
-      }
-    }
+    try {
+      const data = await fetchData();
 
-    // Todos fallaron
-    btn.classList.remove('spinning');
-    document.getElementById('container').innerHTML = `
-      <div class="state-box error-box">
-        <div class="icon">⚠️</div>
-        <div class="error-msg">No se pudo obtener las cotizaciones</div>
-        <div class="error-help">
-          El navegador bloqueó las solicitudes por política de seguridad (CORS/mixed-content).<br/>
-          Para que funcione, servilo con un servidor local:<br/><br/>
-          <code>npx serve .</code> &nbsp;→&nbsp; abrilo en <code>http://localhost:3000</code><br/>
-          o en VS Code: click derecho → <strong>Open with Live Server</strong>
-        </div>
-      </div>`;
+      // Ordenar: primero los que tienen ambos valores, luego por nombre
+      allData = data.sort((a, b) => {
+        const aOk = (a.compra != null && a.venta != null) ? 0 : 1;
+        const bOk = (b.compra != null && b.venta != null) ? 0 : 1;
+        return aOk - bOk || a.nombre.localeCompare(b.nombre);
+      });
+
+      filtrar();
+      const now = new Date().toLocaleTimeString('es-AR', { hour:'2-digit', minute:'2-digit', second:'2-digit' });
+      document.getElementById('updateTime').textContent = `Última actualización: ${now}`;
+    } catch (e) {
+      document.getElementById('container').innerHTML = `
+        <div class="state-box error-box">
+          <div class="icon">⚠️</div>
+          No se pudo obtener las cotizaciones.<br/>
+          <small style="opacity:.7">${e.message}</small>
+        </div>`;
+    } finally {
+      btn.classList.remove('spinning');
+    }
   }
 
   document.getElementById('search').addEventListener('input', filtrar);
